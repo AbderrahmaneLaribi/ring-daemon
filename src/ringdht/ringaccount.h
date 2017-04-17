@@ -28,6 +28,8 @@
 #include "security/tls_session.h"
 #include "sip/sipaccountbase.h"
 
+#include "contactsmanager.h"
+
 #include "noncopyable.h"
 #include "ip_utils.h"
 #include "ring_types.h" // enable_if_base_of
@@ -46,7 +48,7 @@
 #if HAVE_RINGNS
 #include "namedirectory.h"
 #endif
-
+#include "contact.h"
 /**
  * @file ringaccount.h
  * @brief Ring Account is build on top of SIPAccountBase and uses DHT to handle call connectivity.
@@ -89,6 +91,7 @@ constexpr const char* const RING_ACCOUNT_CONTACTS = "ringAccountContacts";
 }
 
 class IceTransport;
+//class ContactsManager;
 
 class RingAccount : public SIPAccountBase {
     public:
@@ -287,7 +290,7 @@ class RingAccount : public SIPAccountBase {
         bool findCertificate(const dht::InfoHash& h, std::function<void(const std::shared_ptr<dht::crypto::Certificate>&)>&& cb = {});
 
         /* contact requests */
-        std::map<std::string, std::string> getTrustRequests() const;
+        std::vector<std::map<std::string, std::string>> getTrustRequests() const;
         bool acceptTrustRequest(const std::string& from);
         bool discardTrustRequest(const std::string& from);
 
@@ -296,7 +299,7 @@ class RingAccount : public SIPAccountBase {
          * Set confirmed if we know the contact also added us.
          */
         void addContact(const std::string& uri, bool confirmed = false);
-        void removeContact(const std::string& uri);
+        void removeContact(const std::string& uri, bool banned = true);
         std::vector<std::map<std::string, std::string>> getContacts() const;
 
         void sendTrustRequest(const std::string& to, const std::vector<uint8_t>& payload);
@@ -331,14 +334,13 @@ class RingAccount : public SIPAccountBase {
          */
         struct PendingCall;
         struct PendingMessage;
-        struct SavedTrustRequest;
         struct TrustRequest;
         struct KnownDevice;
         struct ArchiveContent;
         struct DeviceAnnouncement;
         struct DeviceSync;
         struct BuddyInfo;
-        struct Contact;
+        //struct Contact;
 
         void syncDevices();
         void onReceiveDeviceSync(DeviceSync&& sync);
@@ -416,6 +418,8 @@ class RingAccount : public SIPAccountBase {
          */
         void onPeerMessage(const dht::InfoHash& peer_device, std::function<void(const std::shared_ptr<dht::crypto::Certificate>& crt, const dht::InfoHash& account_id)>);
 
+        void onTrustRequest(const dht::InfoHash& peer_account, const dht::InfoHash& peer_device, time_t received , bool confirm, std::vector<uint8_t>&& payload);
+
         /**
          * Maps require port via UPnP
          */
@@ -470,6 +474,9 @@ class RingAccount : public SIPAccountBase {
         void saveContacts() const;
         void updateContact(const dht::InfoHash&, const Contact&);
 
+        // Trust store with Ring account main certificate as the only CA
+        tls::TrustStore accountTrust_;
+        // Trust store for to match peer certificates
         tls::TrustStore trust_;
 
         std::shared_ptr<dht::Value> announce_;
@@ -492,10 +499,10 @@ class RingAccount : public SIPAccountBase {
         std::string makeReceipt(const dht::crypto::Identity& id);
         void createRingDevice(const dht::crypto::Identity& id);
         void initRingDevice(const ArchiveContent& a);
-        void migrateAccount(const std::string& pwd);
+        void migrateAccount(const std::string& pwd, dht::crypto::Identity& device);
         static bool updateCertificates(ArchiveContent& archive, dht::crypto::Identity& device);
 
-        void createAccount(const std::string& archive_password);
+        void createAccount(const std::string& archive_password, dht::crypto::Identity&& migrate);
         std::vector<uint8_t> makeArchive(const ArchiveContent& content) const;
         void saveArchive(const ArchiveContent& content, const std::string& pwd);
         ArchiveContent readArchive(const std::string& pwd) const;
@@ -512,7 +519,6 @@ class RingAccount : public SIPAccountBase {
         void loadTreatedMessages();
         void saveTreatedMessages() const;
 
-        void loadKnownDevicesOld();
         void loadKnownDevices();
         void saveKnownDevices() const;
 
@@ -583,6 +589,10 @@ class RingAccount : public SIPAccountBase {
         std::shared_ptr<IceTransport> createIceTransport(const Args&... args);
 
         void registerDhtAddress(IceTransport&);
+
+	ContactsManager *contactsManager_;
+
+	
 };
 
 } // namespace ring
